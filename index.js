@@ -26,9 +26,11 @@ import chatbotRoutes from "./routes/chatbot.routes.js";
 
 const app = express();
 
+app.set("trust proxy", 1);
 
 connectDB();
 connectCloudinary();
+
 const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -46,7 +48,6 @@ app.use(
 );
 app.use(express.json({ limit: "1mb" }));
 
-
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -57,6 +58,9 @@ app.use(
       }
     },
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "token"],
+    exposedHeaders: ["Authorization", "token"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
 app.use(cookieParser());
