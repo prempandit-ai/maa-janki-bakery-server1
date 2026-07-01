@@ -40,7 +40,7 @@ export const sellerLogin = async(req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.status(200).json({ message: "Login successful", success: true });
+    res.status(200).json({ message: "Login successful", success: true, token });
   } catch (error) {
     console.error("Error in sellerLogin:", error);
     res.status(500).json({ message: "Internal server error" });
