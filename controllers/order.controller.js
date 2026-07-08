@@ -2,7 +2,58 @@ import Order from "../models/order.model.js";
 import Product from "../models/product.models.js";
 import mongoose from "mongoose";
 import Address from "../models/address.model.js";
+import User from "../models/user.model.js";
 import { sendOrderDecisionEmail } from "../services/email.service.js";
+
+const splitName = (name = "") => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] || "Customer",
+    lastName: parts.slice(1).join(" "),
+  };
+};
+
+const resolveOrderAddress = async (address, userId, user) => {
+  if (typeof address === "string" && mongoose.Types.ObjectId.isValid(address)) {
+    const addressDoc = await Address.findById(address);
+    if (!addressDoc || addressDoc.userId !== userId.toString()) {
+      return null;
+    }
+    return address;
+  }
+
+  if (address && typeof address === "object") {
+    const { firstName, lastName } = splitName(user?.name);
+    const normalizedAddress = {
+      firstName: address.firstName || firstName,
+      lastName: address.lastName || lastName,
+      email: address.email || user?.email || "",
+      street: address.street || address.address || "",
+      city: address.city || "",
+      state: address.state || "",
+      country: address.country || "India",
+      zipCode: address.zipCode || address.zipcode || address.pincode || "",
+      phone: address.phone || address.phoneNumber || "",
+    };
+
+    const hasRequiredAddress = [
+      normalizedAddress.street,
+      normalizedAddress.city,
+      normalizedAddress.state,
+      normalizedAddress.zipCode,
+      normalizedAddress.phone,
+      normalizedAddress.email,
+    ].every((value) => String(value).trim());
+
+    if (!hasRequiredAddress) {
+      return null;
+    }
+
+    return normalizedAddress;
+  }
+
+  return null;
+};
 
 const hydrateOrderAddress = async (order) => {
   const plainOrder = typeof order.toObject === "function" ? order.toObject() : order;
@@ -30,8 +81,13 @@ export const placeOrderCOD = async (req, res) => {
         .json({ message: "Invalid order details", success: false });
     }
 
-    const addressDoc = await Address.findById(address);
-    if (!addressDoc || addressDoc.userId !== userId.toString()) {
+    const user = await User.findById(userId).select("name email");
+    if (!user) {
+      return res.status(404).json({ message: "User not found", success: false });
+    }
+
+    const orderAddress = await resolveOrderAddress(address, userId, user);
+    if (!orderAddress) {
       return res
         .status(403)
         .json({ message: "Invalid delivery address", success: false });
@@ -59,7 +115,7 @@ export const placeOrderCOD = async (req, res) => {
     await Order.create({
       userId,
       items,
-      address,
+      address: orderAddress,
       amount,
       paymentType: "COD",
       isPaid: false,
@@ -172,7 +228,15 @@ export const updateOrderApproval = async (req, res) => {
     }
 
     const hydratedOrder = await hydrateOrderAddress(order);
-    const customerEmail = hydratedOrder.address?.email || hydratedOrder.userId?.email;
+    let customerEmail = hydratedOrder.address?.email || hydratedOrder.userId?.email;
+    if (!customerEmail) {
+      const user =
+        typeof hydratedOrder.userId === "object"
+          ? hydratedOrder.userId
+          : await User.findById(hydratedOrder.userId).select("email name").lean();
+      customerEmail = user?.email;
+      hydratedOrder.userId = user || hydratedOrder.userId;
+    }
     let emailSent = false;
 
     try {

@@ -20,9 +20,20 @@ const getTransporter = () => {
     host,
     port,
     secure: port === 465,
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
     auth: { user, pass },
   });
 };
+
+const withTimeout = (promise, timeoutMs, message) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(message)), timeoutMs)
+    ),
+  ]);
 
 export const sendOrderDecisionEmail = async ({ to, order, decision }) => {
   const transporter = getTransporter();
@@ -41,25 +52,29 @@ export const sendOrderDecisionEmail = async ({ to, order, decision }) => {
     .map((item) => `${item.product?.name || "Product"} x ${item.quantity}`)
     .join(", ");
 
-  await transporter.sendMail({
-    from: process.env.MAIL_FROM || process.env.SMTP_USER,
-    to,
-    subject,
-    text: [
-      `Hello ${order.address?.firstName || order.userId?.name || "Customer"},`,
-      "",
-      isAccepted
-        ? "Your order has been accepted by Maa Janki Bakery & Farsan Store."
-        : "Sorry, your order has been rejected by Maa Janki Bakery & Farsan Store.",
-      "",
-      `Order ID: ${order._id}`,
-      `Status: ${statusText}`,
-      `Items: ${items || "N/A"}`,
-      `Total: Rs. ${order.amount}`,
-      "",
-      "Thank you.",
-    ].join("\n"),
-  });
+  await withTimeout(
+    transporter.sendMail({
+      from: process.env.MAIL_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      text: [
+        `Hello ${order.address?.firstName || order.userId?.name || "Customer"},`,
+        "",
+        isAccepted
+          ? "Your order has been accepted by Maa Janki Bakery & Farsan Store."
+          : "Sorry, your order has been rejected by Maa Janki Bakery & Farsan Store.",
+        "",
+        `Order ID: ${order._id}`,
+        `Status: ${statusText}`,
+        `Items: ${items || "N/A"}`,
+        `Total: Rs. ${order.amount}`,
+        "",
+        "Thank you.",
+      ].join("\n"),
+    }),
+    9000,
+    "Email send timed out"
+  );
 
   return true;
 };

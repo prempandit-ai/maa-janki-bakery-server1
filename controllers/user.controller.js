@@ -31,6 +31,7 @@ const formatUserResponse = (user) => ({
   name: user.name,
   email: user.email,
   avatar: user.avatar,
+  cartItems: user.cartItems || {},
   dob: user.dob || "",
   gender: user.gender || "",
   phoneNumber: user.phoneNumber || "",
@@ -40,12 +41,21 @@ const formatUserResponse = (user) => ({
   pincode: user.pincode || "",
 });
 
-const setAuthCookie = (res, token) => {
-  res.cookie("token", token, {
+const getCookieOptions = (req) => {
+  const isHttps =
+    req.secure || req.get("x-forwarded-proto") === "https";
+
+  return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "Strict",
+    secure: isHttps,
+    sameSite: isHttps ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
+  };
+};
+
+const setAuthCookie = (req, res, token) => {
+  res.cookie("token", token, {
+    ...getCookieOptions(req),
   });
 };
 
@@ -89,11 +99,12 @@ export const registerUser=async(req,res)=>{
     const token=jwt.sign({id:user._id},process.env.JWT_SECRET,
       {expiresIn: "7d" ,} );
 
-     setAuthCookie(res, token);
+     setAuthCookie(req, res, token);
    res.json({
         message:"User registered Successfully",
          success:true,
         user: formatUserResponse(user),
+        token,
    
    });     
   }
@@ -133,11 +144,12 @@ export const registerUser=async(req,res)=>{
        const token=jwt.sign({ id:user._id }, process.env.JWT_SECRET,
 {  expiresIn:"7d"                
        });
-      setAuthCookie(res, token);
+      setAuthCookie(req, res, token);
    res.json({
         message:"Logged in successfully",
          success:true,
         user: formatUserResponse(user),
+        token,
    
    });     
 
@@ -238,12 +250,13 @@ export const googleAuthUser = async (req, res) => {
       expiresIn: "7d",
     });
 
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
 
     res.json({
       message: "Signed in with Google successfully",
       success: true,
       user: formatUserResponse(user),
+      token,
     });
   } catch (error) {
     console.error("Google auth error:", error.message);
@@ -255,11 +268,7 @@ export const googleAuthUser = async (req, res) => {
   
  export const logoutUser=async(req,res)=>{
    try{
-     res.clearCookie("token",{
-         httpOnly:true,
-         secure:process.env.NODE_ENV==="production",
-         sameSite:process.env.NODE_ENV==="production"? "none":"Strict",
-     });
+     res.clearCookie("token", getCookieOptions(req));
     res.json({message:"User logged out successfully",success:true});  
     }
       catch(error){ 
@@ -274,7 +283,7 @@ export const isAuthUser=async(req,res)=>{
   try{
        const userId=req.user;
     if(!userId){
-           return res.status(401).json({message:"Unauthorised",success:false});
+           return res.json({message:"Not signed in",success:false});
     }
      const user=await User.findById(userId).select("-password");
     res.json({
@@ -283,6 +292,7 @@ export const isAuthUser=async(req,res)=>{
        name:user.name,
        email:user.email,
        avatar:user.avatar,
+       cartItems:user.cartItems || {},
        dob:user.dob,
        gender:user.gender,
        phoneNumber:user.phoneNumber,

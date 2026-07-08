@@ -4,7 +4,36 @@ export const addAddress = async (req, res) => {
   try {
     const { address } = req.body;
     const userId = req.user;
-    const savedAddress = await Address.create({
+
+    if (!userId) {
+      return res.status(401).json({ message: "Please login to add an address", success: false });
+    }
+
+    if (!address || typeof address !== "object") {
+      return res.status(400).json({ message: "Address details are required", success: false });
+    }
+
+    const requiredFields = [
+      "firstName",
+      "lastName",
+      "email",
+      "street",
+      "city",
+      "state",
+      "zipCode",
+      "country",
+      "phone",
+    ];
+    const missingField = requiredFields.find((field) => !String(address[field] ?? "").trim());
+
+    if (missingField) {
+      return res.status(400).json({
+        message: `${missingField} is required`,
+        success: false,
+      });
+    }
+
+    await Address.create({
       ...address,
       userId: userId,
     });
@@ -12,7 +41,8 @@ export const addAddress = async (req, res) => {
       .status(201)
       .json({ success: true, message: "Address added successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Internal Server Error" });
+    console.error("Add address error:", error.message);
+    res.status(500).json({ message: "Internal Server Error", success: false });
   }
 };
 
@@ -23,6 +53,7 @@ export const getAddress = async (req, res) => {
     const addresses = await Address.find({ userId });
     res.status(200).json({ success: true, addresses });
   } catch (error) {
-    res.status(500).json({ message: "Internal Server Error" });
+    console.error("Get address error:", error.message);
+    res.status(500).json({ message: "Internal Server Error", success: false });
   }
 };
