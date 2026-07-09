@@ -285,27 +285,19 @@ export const changeStock = async (req, res) => {
 };
 
 // SEARCH PRODUCTS
-export const searchProducts = async (req, res) => {
-  try {
-    const { q } = req.query;
 
-    if (!q) {
-      return res.status(200).json({
-        success: true,
-        products: [],
-      });
-    }
+export const searchProducts = async (query) => {
+  const regex = new RegExp(query, "i");
 
-    const products = await productService.searchProducts(q);
+  return await Product.find({
+    $or: [
+      { name: regex },
+      { category: regex },
+      { description: regex },
+      { tags: regex },
+    ],
+    inStock: true,
+  }).limit(20);
 
-    res.status(200).json({
-      success: true,
-      products,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Server error",
-    });
-  }
+
 };
