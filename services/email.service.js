@@ -1,13 +1,15 @@
 import nodemailer from "nodemailer";
+import dns from "dns";
 
-const getTransporter = () => {
-  const host = process.env.SMTP_HOST;
+const getSmtpConfig = () => {
+  const host = process.env.SMTP_HOST?.trim();
   const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
+  const user = process.env.SMTP_USER?.trim();
   const pass = process.env.SMTP_PASS;
 
   if (
     !host ||
+    !Number.isInteger(port) ||
     !user ||
     !pass ||
     user.includes("your_") ||
@@ -16,6 +18,18 @@ const getTransporter = () => {
     return null;
   }
 
+  return { host, port, user, pass };
+};
+
+const getTransporter = () => {
+  const config = getSmtpConfig();
+
+  if (!config) {
+    return null;
+  }
+
+  const { host, port, user, pass } = config;
+
   return nodemailer.createTransport({
     host,
     port,
@@ -23,6 +37,17 @@ const getTransporter = () => {
     connectionTimeout: 8000,
     greetingTimeout: 8000,
     socketTimeout: 8000,
+    // Force IPv4 resolution. Render (and similar cloud hosts) often prefer
+    // IPv6 by default, but Gmail's SMTP servers can be unreliable or
+    // unreachable over IPv6 from these networks, causing the connection to
+    // hang until it hits connectionTimeout ("Connection timeout" in logs).
+    // Forcing family: 4 here makes Nodemailer resolve smtp.gmail.com to an
+    // IPv4 address instead, which resolves this on Render specifically.
+    lookup: (hostname, options, callback) =>
+      dns.lookup(hostname, { family: 4 }, callback),
+    tls: {
+      servername: host,
+    },
     auth: { user, pass },
   });
 };
@@ -39,7 +64,10 @@ export const sendOrderDecisionEmail = async ({ to, order, decision }) => {
   const transporter = getTransporter();
 
   if (!transporter || !to) {
-    console.warn("Order email skipped: SMTP config or recipient email is missing");
+    console.warn(
+      "Order email skipped:",
+      !transporter ? "SMTP config is missing or invalid" : "recipient email is missing"
+    );
     return false;
   }
 
@@ -52,7 +80,7 @@ export const sendOrderDecisionEmail = async ({ to, order, decision }) => {
     .map((item) => `${item.product?.name || "Product"} x ${item.quantity}`)
     .join(", ");
 
-  await withTimeout(
+  const info = await withTimeout(
     transporter.sendMail({
       from: process.env.MAIL_FROM || process.env.SMTP_USER,
       to,
@@ -75,6 +103,13 @@ export const sendOrderDecisionEmail = async ({ to, order, decision }) => {
     9000,
     "Email send timed out"
   );
+
+  console.log("Order decision email sent:", {
+    to,
+    messageId: info.messageId,
+    accepted: info.accepted,
+    rejected: info.rejected,
+  });
 
   return true;
 };
