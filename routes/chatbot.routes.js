@@ -11,13 +11,19 @@ const SYSTEM_PROMPT_BASE =
 
 const getContext = () => {
     try {
-        const correlationPath = path.join(process.cwd(), 'controllers', 'correlation.md');
+        const correlationPath = path.join(
+            process.cwd(),
+            'controllers',
+            'correlation.md'
+        );
+
         if (fs.existsSync(correlationPath)) {
             return fs.readFileSync(correlationPath, 'utf8');
         }
     } catch (error) {
         console.error("[Chatbot] Error reading correlation.md:", error);
     }
+
     return "";
 };
 
@@ -27,29 +33,50 @@ router.post('/', async (req, res) => {
         const { message } = req.body;
 
         if (!message || typeof message !== 'string' || !message.trim()) {
-            return res.status(400).json({ success: false, error: "Message is required." });
+            return res.status(400).json({
+                success: false,
+                error: "Message is required."
+            });
         }
 
         const apiKey = process.env.GROQ_API_KEY;
+
         if (!apiKey) {
             console.error("[Chatbot] GROQ_API_KEY not set in .env");
-            return res.status(500).json({ success: false, error: "AI service is not configured (Groq Cloud)." });
+
+            return res.status(500).json({
+                success: false,
+                error: "AI service is not configured (Groq Cloud)."
+            });
         }
 
-        console.log(`[Chatbot] Sending to Grok Cloud | llama-3.3-70b-versatile | Message: "${message.substring(0, 60)}"`);
+        const MODEL = "openai/gpt-oss-120b";
 
-        // Using standard OpenAI-compatible completions endpoint
+        console.log(
+            `[Chatbot] Sending to Groq Cloud | ${MODEL} | Message: "${message.substring(0, 60)}"`
+        );
+
+        const context = getContext();
+
         const response = await axios.post(
             'https://api.groq.com/openai/v1/chat/completions',
             {
-                model: "llama-3.3-70b-versatile",
+                model: MODEL,
+
                 messages: [
-                    { 
-                        role: "system", 
-                        content: `${SYSTEM_PROMPT_BASE}\n\nUse the following business information to answer user queries accurately:\n\n${getContext()}` 
+                    {
+                        role: "system",
+                        content:
+                            `${SYSTEM_PROMPT_BASE}\n\n` +
+                            `Use the following business information to answer ` +
+                            `user queries accurately:\n\n${context}`
                     },
-                    { role: "user", content: message.trim() }
+                    {
+                        role: "user",
+                        content: message.trim()
+                    }
                 ],
+
                 temperature: 0.7,
                 max_tokens: 1024,
                 top_p: 1,
@@ -67,11 +94,21 @@ router.post('/', async (req, res) => {
         const reply = response.data?.choices?.[0]?.message?.content;
 
         if (reply) {
-            console.log("[Chatbot] ✅ Reply received successfully from Groq.");
-            return res.status(200).json({ success: true, reply });
+            console.log(
+                "[Chatbot] ✅ Reply received successfully from Groq."
+            );
+
+            return res.status(200).json({
+                success: true,
+                reply
+            });
         }
 
-        console.error("[Chatbot] No reply found in Groq response:", JSON.stringify(response.data).substring(0, 500));
+        console.error(
+            "[Chatbot] No reply found in Groq response:",
+            JSON.stringify(response.data).substring(0, 500)
+        );
+
         return res.status(500).json({
             success: false,
             error: "Could not extract reply from AI response.",
@@ -81,9 +118,15 @@ router.post('/', async (req, res) => {
     } catch (error) {
         const status = error.response?.status;
         const data = error.response?.data;
-        const details = data?.error?.message || data?.error || error.message;
 
-        console.error(`[Chatbot] ❌ Groq API Error | HTTP ${status || 'N/A'} | ${JSON.stringify(details)}`);
+        const details =
+            data?.error?.message ||
+            data?.error ||
+            error.message;
+
+        console.error(
+            `[Chatbot] ❌ Groq API Error | HTTP ${status || 'N/A'} | ${JSON.stringify(details)}`
+        );
 
         if (status === 401) {
             return res.status(401).json({
@@ -92,17 +135,31 @@ router.post('/', async (req, res) => {
             });
         }
 
+        if (status === 403) {
+            return res.status(403).json({
+                success: false,
+                error: "This Groq model is not available for your project/API key.",
+                details:
+                    typeof details === 'string'
+                        ? details
+                        : JSON.stringify(details)
+            });
+        }
+
         if (status === 429) {
             return res.status(429).json({
                 success: false,
-                error: "Rate limit reached on Groq free tier. Please wait a moment."
+                error: "Rate limit reached on Groq. Please try again later."
             });
         }
 
         return res.status(status || 500).json({
             success: false,
             error: "AI service error (Groq).",
-            details: typeof details === 'string' ? details : JSON.stringify(details)
+            details:
+                typeof details === 'string'
+                    ? details
+                    : JSON.stringify(details)
         });
     }
 });
